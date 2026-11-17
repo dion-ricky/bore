@@ -17,18 +17,49 @@ lazy_static! {
 
 /// Spawn the server, giving some time for the control port TcpListener to start.
 async fn spawn_server(secret: Option<&str>) {
-    tokio::spawn(Server::new(1024..=65535, secret).listen());
+    spawn_server_on(CONTROL_PORT, secret).await
+}
+
+/// Spawn the server on a specific control port, giving some time for the
+/// control port TcpListener to start.
+async fn spawn_server_on(control_port: u16, secret: Option<&str>) {
+    let mut server = Server::new(1024..=65535, secret);
+    server.set_control_port(control_port);
+    tokio::spawn(server.listen());
     time::sleep(Duration::from_millis(50)).await;
 }
 
 /// Spawns a client with randomly assigned ports, returning the listener and remote address.
 async fn spawn_client(secret: Option<&str>) -> Result<(TcpListener, SocketAddr)> {
+    spawn_client_on(CONTROL_PORT, secret).await
+}
+
+/// Spawns a client with randomly assigned ports on a specific control port,
+/// returning the listener and remote address.
+async fn spawn_client_on(
+    control_port: u16,
+    secret: Option<&str>,
+) -> Result<(TcpListener, SocketAddr)> {
     let listener = TcpListener::bind("localhost:0").await?;
     let local_port = listener.local_addr()?.port();
-    let client = Client::new("localhost", local_port, "localhost", 0, secret).await?;
+    let client = Client::new_with_control_port(
+        "localhost",
+        local_port,
+        "localhost",
+        0,
+        secret,
+        control_port,
+    )
+    .await?;
     let remote_addr = ([127, 0, 0, 1], client.remote_port()).into();
     tokio::spawn(client.listen());
     Ok((listener, remote_addr))
+}
+
+/// Returns a free TCP port assigned by the OS.
+async fn free_port() -> Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    Ok(listener.local_addr()?.port())
 }
 
 #[rstest]
@@ -62,6 +93,34 @@ async fn basic_proxy(#[values(None, Some(""), Some("abc"))] secret: Option<&str>
     // Also ensure that additional connections do not produce any data.
     let mut stream = TcpStream::connect(addr).await?;
     assert_eq!(stream.read(&mut buf).await?, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn custom_control_port() -> Result<()> {
+    let _guard = SERIAL_GUARD.lock().await;
+
+    let control_port = free_port().await?;
+    spawn_server_on(control_port, None).await;
+    let (listener, addr) = spawn_client_on(control_port, None).await?;
+
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await?;
+        let mut buf = [0u8; 11];
+        stream.read_exact(&mut buf).await?;
+        assert_eq!(&buf, b"hello world");
+
+        stream.write_all(b"I can send a message too!").await?;
+        anyhow::Ok(())
+    });
+
+    let mut stream = TcpStream::connect(addr).await?;
+    stream.write_all(b"hello world").await?;
+
+    let mut buf = [0u8; 25];
+    stream.read_exact(&mut buf).await?;
+    assert_eq!(&buf, b"I can send a message too!");
 
     Ok(())
 }

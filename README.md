@@ -96,11 +96,12 @@ Arguments:
   <LOCAL_PORT>  The local port to expose [env: BORE_LOCAL_PORT=]
 
 Options:
-  -l, --local-host <HOST>  The local host to expose [default: localhost]
-  -t, --to <TO>            Address of the remote server to expose local ports to [env: BORE_SERVER=]
-  -p, --port <PORT>        Optional port on the remote server to select [default: 0]
-  -s, --secret <SECRET>    Optional secret for authentication [env: BORE_SECRET]
-  -h, --help               Print help
+  -l, --local-host <HOST>            The local host to expose [default: localhost]
+  -t, --to <TO>                      Address of the remote server to expose local ports to [env: BORE_SERVER=]
+  -p, --port <PORT>                  Optional port on the remote server to select [default: 0]
+  -s, --secret <SECRET>              Optional secret for authentication [env: BORE_SECRET]
+      --control-port <CONTROL_PORT>  TCP port used for control connections with the server [env: BORE_CONTROL_PORT=] [default: 7835]
+  -h, --help                         Print help
 ```
 
 ### Self-Hosting
@@ -111,7 +112,7 @@ As mentioned in the startup instructions, there is a public instance of the `bor
 bore server
 ```
 
-That's all it takes! After the server starts running at a given address, you can then update the `bore local` command with option `--to <ADDRESS>` to forward a local port to this remote server.
+That's all it takes! After the server starts running at a given address, you can then update the `bore local` command with option `--to <ADDRESS>` to forward a local port to this remote server. When using a non-default control port, both the server and client must be given the same `--control-port`.
 
 It's possible to specify different IP addresses for the control server and for the tunnels. This setup is useful for cases where you might want the control server to be on a private network while allowing tunnel connections over a public interface, or vice versa.
 
@@ -128,12 +129,13 @@ Options:
   -s, --secret <SECRET>              Optional secret for authentication [env: BORE_SECRET]
       --bind-addr <BIND_ADDR>        IP address to bind to, clients must reach this [default: 0.0.0.0]
       --bind-tunnels <BIND_TUNNELS>  IP address where tunnels will listen on, defaults to --bind-addr
+      --control-port <CONTROL_PORT>  TCP port used for control connections with clients [env: BORE_CONTROL_PORT=] [default: 7835]
   -h, --help                         Print help
 ```
 
 ## Protocol
 
-There is an implicit _control port_ at `7835`, used for creating new connections on demand. At initialization, the client sends a "Hello" message to the server on the TCP control port, asking to proxy a selected remote port. The server then responds with an acknowledgement and begins listening for external TCP connections.
+There is a _control port_, whose default is `7835`, used for creating new connections on demand. The control port is configurable with `--control-port` on both the server and client. At initialization, the client sends a "Hello" message to the server on the TCP control port, asking to proxy a selected remote port. The server then responds with an acknowledgement and begins listening for external TCP connections.
 
 Whenever the server obtains a connection on the remote port, it generates a secure [UUID](https://en.wikipedia.org/wiki/Universally_unique_identifier) for that connection and sends it back to the client. The client then opens a separate TCP stream to the server and sends an "Accept" message containing the UUID on that stream. The server then proxies the two connections between each other.
 
